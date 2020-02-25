@@ -14,16 +14,21 @@ import edu.cnm.deepdive.nasaapod.model.repository.ApodRepository;
 import edu.cnm.deepdive.nasaapod.service.ApodService;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.CompositeDisposable;
+import io.reactivex.functions.Action;
 import io.reactivex.functions.Consumer;
 import io.reactivex.schedulers.Schedulers;
+import java.sql.Struct;
 import java.text.ParseException;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 public class MainViewModel extends AndroidViewModel implements LifecycleObserver {
 
   private final MutableLiveData<Apod> apod;
   private final MutableLiveData<Throwable> throwable;
+  private final MutableLiveData<Set<String>> permissions;
   private final CompositeDisposable pending;
   private final ApodRepository repository;
 
@@ -33,6 +38,7 @@ public class MainViewModel extends AndroidViewModel implements LifecycleObserver
     repository = ApodRepository.getInstance();
     apod = new MutableLiveData<>();
     throwable = new MutableLiveData<>();
+    permissions = new MutableLiveData<>(new HashSet<>());
     pending = new CompositeDisposable();
     Date today = new Date();
     String formattedDate = ApodService.DATE_FORMATTER.format(today);
@@ -56,6 +62,25 @@ public class MainViewModel extends AndroidViewModel implements LifecycleObserver
     return throwable;
   }
 
+  public LiveData<Set<String>> getPermissions() {
+    return permissions;
+  }
+
+  public void grantPermission(String permission) {
+    Set<String> permissions = this.permissions.getValue();
+    if (permissions.add(permission)) {
+      this.permissions.setValue(permissions);
+    }
+  }
+
+  public void revokePermission(String permission) {
+    Set<String> permissions = this.permissions.getValue();
+    if (permissions.remove(permission)) {
+      this.permissions.setValue(permissions);
+
+    }
+  }
+
   public void setApodDate(Date date) {
     throwable.setValue(null);
     pending.add(
@@ -71,6 +96,7 @@ public class MainViewModel extends AndroidViewModel implements LifecycleObserver
     throwable.setValue(null);
     pending.add(
         repository.getImage(apod)
+            // Consume result on main thread, since pathConsumer will probably "touch" the UI.
             .observeOn(AndroidSchedulers.mainThread())
             .subscribe(
                 pathConsumer,
@@ -78,7 +104,17 @@ public class MainViewModel extends AndroidViewModel implements LifecycleObserver
             )
     );
   }
-
+  public void downloadImage(@NonNull Apod apod, Action onSuccess) {
+    throwable.setValue(null);
+    pending.add(
+        repository.downloadImage(apod)
+        .observeOn(AndroidSchedulers.mainThread())
+        .subscribe(
+            onSuccess,
+            throwable::setValue
+        )
+    );
+  }
   @SuppressWarnings("unused")
   @OnLifecycleEvent(Event.ON_STOP)
   private void disposePending() {
